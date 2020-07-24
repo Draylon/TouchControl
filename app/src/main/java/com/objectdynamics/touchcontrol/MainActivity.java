@@ -16,6 +16,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.Scanner;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -30,8 +31,13 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void run() {
             try{
-                System.out.println("Servidor iniciado na porta 3322");
-                server = new ServerSocket(3322);
+                client=null;
+                if(dOut!=null)
+                    dOut.close();
+                if(server==null){
+                    server = new ServerSocket(3322);
+                    System.out.println("Servidor iniciado na porta 3322");
+                }
                 client = server.accept();
                 System.out.println("Cliente conectado do IP "+client.getInetAddress().getHostAddress());
             }catch (IOException e){
@@ -42,6 +48,7 @@ public class MainActivity extends AppCompatActivity {
 
     Thread connectThread=null;
     private void bindUser(){
+        System.out.println("binding");
         if(connectThread != null)
             if(connectThread.isAlive())
                 return;
@@ -54,7 +61,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(Bundle savedInstanceState){
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         /*requestWindowFeature(Window.FEATURE_NO_TITLE); //will hide the title
@@ -78,11 +85,20 @@ public class MainActivity extends AppCompatActivity {
 
 
     }
+    int index;
+    int action;
+    int pointerID;
+    String sned;
     @Override
     public boolean dispatchTouchEvent(MotionEvent event){
-        int index = event.getActionIndex();
-        int action = event.getActionMasked();
-        int pointerID = event.getPointerId(index);
+        if(client == null) return true;
+        if(!client.isConnected()) {
+            bindUser();
+            return true;
+        }
+        index = event.getActionIndex();
+        action = event.getActionMasked();
+        pointerID = event.getPointerId(index);
 //        System.err.print("Pack==");
 //        System.err.print(ii+"-> "+index+" "+action+" "+pointerID+" ("+(int)event.getX()+","+(int)event.getY()+")");
 //        System.err.println("==endpack");
@@ -96,30 +112,48 @@ public class MainActivity extends AppCompatActivity {
                 dOut = new DataOutputStream(client.getOutputStream());
                 dOut.writeByte(3);
             }
-
+            sned="c"+pointerID+";";
             switch (action){
                 case MotionEvent.ACTION_DOWN:
-                    dOut.writeUTF("0-"+Integer.toString(pointerID)+";"+Integer.toString((int)event.getX())+","+Integer.toString((int)event.getY()));
+                    //dOut.writeUTF("0-"+pointerID+";"+((int)event.getX())+","+((int)event.getY()));
+                    //dOut.writeInt(0);
+                    sned += "0";
                 break;
                 case MotionEvent.ACTION_CANCEL:
+                    //dOut.writeInt(3);
+                    sned += "3";
+                break;
                 case MotionEvent.ACTION_UP:
-                    dOut.writeUTF("1-"+Integer.toString(pointerID)+";"+Integer.toString((int)event.getX())+","+Integer.toString((int)event.getY()));
-//                    System.err.println("Up is here");
-                    dOut.flush();
-                    dOut.writeUTF("1-"+Integer.toString(pointerID)+";"+Integer.toString((int)event.getX())+","+Integer.toString((int)event.getY()));
+                    //dOut.writeInt(1);
+                    sned += "1";
                 break;
                 case MotionEvent.ACTION_MOVE:
-                    dOut.writeUTF("2-"+Integer.toString(pointerID)+";"+Integer.toString((int)event.getX())+","+Integer.toString((int)event.getY()));
+                    //dOut.writeInt(2);
+                    sned += "2";
                 break;
             }
+            sned+=";"+((int)event.getX())+";"+((int)event.getY())+";d";
+            dOut.writeBytes(sned);
+            System.out.println(sned);
             dOut.flush(); // Send off the data
-
-
+        }catch (SocketException e){
+            try {
+                client.close();
+                dOut.close();
+                client=null;
+                dOut=null;
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
+            bindUser();
+            return true;
         } catch (Exception e) {
-            //e.printStackTrace();
             System.err.println(e);
+            e.printStackTrace();
         }
-        return true;
+        finally {
+            return true;
+        }
 //        MotionEvent.ACTION_DOWN
 //        MotionEvent.ACTION_UP
 //        MotionEvent.ACTION_MOVE
