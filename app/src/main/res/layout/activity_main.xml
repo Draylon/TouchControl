@@ -6,4 +6,15 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         tools:context=".MainActivity" android:background="#21272A" android:orientation="vertical"
-        android:gravity="center" android:id="@+id/mainwindow"/>
+        android:gravity="center" android:id="@+id/mainwindow">
+    <VideoView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:id="@+id/videoFeed" android:visibility="gone"/>
+    <SurfaceView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:id="@+id/surfaceView" android:visibility="gone"/>
+    <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" android:id="@+id/imageView"
+            android:visibility="visible"/>
+</LinearLayout>

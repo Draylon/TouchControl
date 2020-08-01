@@ -1,45 +1,171 @@
 package com.objectdynamics.touchcontrol;
 
-import android.app.Activity;
-import android.os.AsyncTask;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.media.MediaPlayer;
+import android.os.ParcelFileDescriptor;
 import android.view.MotionEvent;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
 import android.view.View;
-import android.view.Window;
-import android.view.WindowManager;
-import android.widget.Button;
-import android.widget.TextView;
-import android.widget.Toast;
+import android.widget.ImageView;
+import android.widget.VideoView;
 import androidx.appcompat.app.AppCompatActivity;
 import android.os.Bundle;
 
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketException;
-import java.util.Scanner;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import java.io.*;
+import java.net.*;
+import java.nio.ByteBuffer;
+import java.util.zip.Deflater;
+import java.util.zip.Inflater;
 
 public class MainActivity extends AppCompatActivity {
 
-    ServerSocket server=null;
-    Socket client=null;
-    DataOutputStream dOut =null;
+    private static ServerSocket touchServerSocket=null;
+    private static Socket client=null;
+    private static DataOutputStream dOut =null;
+    private static int[] dimensionsList = new int[2];
 
-    Runnable connectRunnable = new Runnable() {
+    MediaPlayer mp;
+    VideoView videoFeed;
+    private SurfaceView mPreview;
+    private SurfaceHolder holder;
+    ServerSocket screenServer;
+    Socket screenClient;
+    ImageView imgv;
+    private static DataInputStream scrDIS=null;
+    private static Inflater decompressor;
+    private static ByteArrayOutputStream scrDout;
+    private static InetAddress scripadd;
+
+    //https://stackoverflow.com/questions/6116880/stream-live-video-from-phone-to-phone-using-socket-fd
+    //https://www.google.com/search?q=java+Socket+stream+pc+screen+to+android+videofeed
+    private void drawOnScreen(final Bitmap bitmap){
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try{
+                    imgv.setImageBitmap(bitmap);
+                }catch (Exception e){
+                    e.printStackTrace();
+                }
+            }
+        });
+    }
+    /*Runnable screenServerRunnable = new Runnable() {
         @Override
         public void run() {
             try{
-                client=null;
-                if(dOut!=null)
-                    dOut.close();
-                if(server==null){
-                    server = new ServerSocket(3322);
-                    System.out.println("Servidor iniciado na porta 3322");
+                screenServer = new DatagramSocket(3323);
+                imgv=findViewById(R.id.imageView);
+                byte[] receiveData = new byte[50000];
+                scripadd=InetAddress.getByName("127.0.0.1");
+                screenClient=screenServer.accept();
+                scrDIS=new DataInputStream(screenClient.getInputStream());
+                decompressor=new Inflater();
+                scrDout=new ByteArrayOutputStream();
+                while(screenServer.isBound()&&!screenServer.isClosed()) {
+                    DatagramPacket dgp = new DatagramPacket(receiveData,receiveData.length,scripadd,3323);
+                    System.out.println("Awaiting package");
+                    screenServer.receive(dgp);
+                    decompressor.setInput(dgp.getData());
+                    System.out.println("received Compressed "+dgp.getData().length);
+                    byte[] buffer = new byte[2048];
+                    while (!decompressor.finished()) { int count = decompressor.inflate(buffer);scrDout.write(buffer, 0, count); }
+                    scrDout.close();
+                    byte[] output = scrDout.toByteArray();
+                    System.out.println("decompressed to "+output.length);
+                    scrDout.reset();
+                    System.out.println("Drawing on screen");
+                    try{ drawOnScreen(BitmapFactory.decodeByteArray(output,0,output.length));
+                        }catch (Exception e){ e.printStackTrace(); }
+                    System.out.println("Drawn on screen");
                 }
-                client = server.accept();
-                System.out.println("Cliente conectado do IP "+client.getInetAddress().getHostAddress());
+            }catch (Exception e){
+                System.out.println(e.getMessage());
+                e.printStackTrace();
+            }
+        }
+    };*/
+
+    /*Runnable screenServerRunnable = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                screenServer = new Socket("127.0.0.1",3323);
+                ParcelFileDescriptor pfd = ParcelFileDescriptor.fromSocket(screenServer);
+                pfd.getFileDescriptor().sync();
+                mp.setDataSource(pfd.getFileDescriptor());
+                pfd.close();
+                mp.setDisplay(holder);
+                mp.prepareAsync();
+                mp.start();
+            }catch (IOException e){
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+        }
+    };*/
+
+    Runnable screenServerRunnable = new Runnable() {
+        @Override
+        public void run() {
+            try{
+                if(screenClient!=null)screenClient.close();screenClient=null;
+                if(scrDIS!=null)scrDIS.close();
+                if(screenServer==null){ screenServer=new ServerSocket(3323);System.out.println("Screen Server initialized at 3323"); }
+                screenClient = screenServer.accept();
+                scrDIS=new DataInputStream(screenClient.getInputStream());
+                decompressor=new Inflater();
+                scrDout=new ByteArrayOutputStream();
+                byte[] buffer = new byte[8192];
+                byte[] compressedbb;
+                imgv=(ImageView)findViewById(R.id.imageView);
+                int comprDataLength=0;
+                //novo metodo:
+                //primeiro byte escreve o tamanho em bytes da string de tamanho
+                //pega os bytes e converte pra int
+                //readfully do resto
+                //https://stackoverflow.com/questions/2732260/in-java-when-i-call-outputstream-close-do-i-always-need-to-call-outputstream
+
+                while (screenClient.isConnected()&&screenClient.isBound()&&!screenClient.isClosed()){
+                    comprDataLength=scrDIS.readInt();
+                    compressedbb=new byte[comprDataLength];
+                    scrDIS.readFully(compressedbb,0,comprDataLength);
+                    decompressor.setInput(compressedbb);
+                    System.out.println("received Compressed: "+comprDataLength+" total, doing: " +decompressor.getBytesRead()+" "+decompressor.getBytesWritten());
+                    while (!decompressor.finished()) {
+                        int count = decompressor.inflate(buffer);
+                        scrDout.write(buffer, 0, count); }
+                    System.out.println("Drawing on screen");
+                    drawOnScreen(BitmapFactory.decodeByteArray(scrDout.toByteArray(),0, scrDout.size()));
+
+                    buffer = new byte[8192];
+                    scrDout.flush();
+                    scrDout.reset();
+                    decompressor.reset();
+                }
+            }catch (Exception e){
+                e.printStackTrace();
+            }
+        }
+    };
+
+    Runnable conTouchServerRunnable = new Runnable() {
+        @Override
+        public void run() {
+            try{
+                dimensionsList[0]= findViewById(R.id.mainwindow).getWidth();
+                dimensionsList[1]=findViewById(R.id.mainwindow).getHeight();
+                if(client!=null) client.close();
+                client=null;
+                if(dOut!=null) dOut.close();
+                if(touchServerSocket ==null){
+                    touchServerSocket = new ServerSocket(3322);
+                    System.out.println("Touch Server initialized at 3322");
+                }
+                client = touchServerSocket.accept();
+                System.out.println("TouchServer connected IP "+client.getInetAddress().getHostAddress());
             }catch (IOException e){
                 System.out.println(e.getMessage());
             }
@@ -47,18 +173,102 @@ public class MainActivity extends AppCompatActivity {
     };
 
     Thread connectThread=null;
-    private void bindUser(){
-        System.out.println("binding");
-        if(connectThread != null)
-            if(connectThread.isAlive())
-                return;
-
-        if(client!=null)
-            if(client.isConnected())
-                return;
-        Thread t = new Thread(connectRunnable);
-        t.start();
+    private boolean bindUserTouch(){
+        if(client!=null) if(!client.isClosed()&&!client.isClosed()) return false;
+        if(connectThread != null) if(connectThread.isAlive()) return true;
+        System.out.println("binding touch");
+        connectThread = new Thread(conTouchServerRunnable);
+        connectThread.start();
+        return true;
     }
+
+    Thread sendVideo=null;
+    private boolean bindUserScreen(){
+        if(sendVideo != null) if(sendVideo.isAlive()) return true;
+
+        mPreview = (SurfaceView) findViewById(R.id.surfaceView);
+        holder = mPreview.getHolder();
+        //holder.addCallback(this);
+        holder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
+        mp = new MediaPlayer();
+
+        sendVideo = new Thread(screenServerRunnable);
+        sendVideo.start();
+        return false;
+    }
+
+    /*Thread screenServerThread=null;
+    private boolean bindUserScreen(){
+        if(clientScreen!=null) if(!clientScreen.isBound()&&!clientScreen.isClosed()) return false;
+        if(screenServerThread!=null) if(screenServerThread.isAlive()) return true;
+        System.out.println("binding screen");
+        screenServerThread = new Thread(screenDataServerRunnable);
+        screenServerThread.start();
+        return true;
+    }*/
+
+    /*private void drawOnScreen(final Bitmap btm){
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                imgv.setImageBitmap(Bitmap.createScaledBitmap(btm, 800, 480, false));
+                System.out.println("Drawn: "+iip);
+                iip++;
+            }
+        });
+    }
+    static int iip=0;
+    Runnable screenCastingServiceRunnable = new Runnable() {
+        @Override
+        public void run() {
+            int base64Length=0,b64s=0;
+            String base64Input="";int cbyte=0;
+            byte[] decodedString;
+            GZIPInputStream dIsg;
+            ByteArrayInputStream baIsg;
+            try{
+                imgv = ((ImageView)findViewById(R.id.displayScreen));
+                if(dIs==null) dIs = new DataInputStream(clientScreen.getInputStream());
+                while(!clientScreen.isClosed()){
+                    cbyte=dIs.readByte();
+                    if(cbyte==-25) {
+                        base64Length = Integer.parseInt(base64Input);
+                        System.out.println("Drawing");
+                        base64Input = "";
+                        byte[] bbcmp = new byte[base64Length];
+                        dIs.readFully(bbcmp,0,base64Length);
+
+                        dIsg = new GZIPInputStream(new ByteArrayInputStream(bbcmp));
+                        BufferedReader bf = new BufferedReader(new InputStreamReader(dIsg, StandardCharsets.ISO_8859_1));
+                        String line;
+                        while ((line=bf.readLine())!=null)
+                            base64Input += line;
+                        System.out.println("Output String length : " + base64Input.length());
+
+                        decodedString = Base64.decode(base64Input, Base64.DEFAULT);
+                        drawOnScreen(BitmapFactory.decodeByteArray(decodedString, 0, decodedString.length));
+                        decodedString=null;base64Input="";
+                        //System.gc();
+                    }else{base64Input+=(char)cbyte;}
+                }
+            }catch (EOFException e) {
+                System.err.println("Data Input (ScreenCast) not avaliable / properly connected");
+                try { if(clientScreen!=null)client.close(); } catch (IOException ex) { ex.printStackTrace(); }
+                try { if(dIs!=null)client.close(); } catch (IOException ex) { ex.printStackTrace(); }
+            }catch (IOException e) {
+                e.printStackTrace();
+            }catch (Exception e){
+                System.err.println(e);
+                e.printStackTrace();
+            }
+        }
+    };
+    Thread castingScreenThread=null;
+    private void runScreenCastingService(){
+        if(castingScreenThread!=null) if(castingScreenThread.isAlive()) return;
+        castingScreenThread=new Thread(screenCastingServiceRunnable);
+        castingScreenThread.start();
+    }*/
 
     @Override
     protected void onCreate(Bundle savedInstanceState){
@@ -75,64 +285,69 @@ public class MainActivity extends AppCompatActivity {
                         | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_IMMERSIVE);
-
-        bindUser();
-
+        //bindUserTouch();
+        bindUserScreen();
         /*server.close();
         client.close();
         dOut.close();*/
-
-
-
     }
-    int index;
-    int action;
     int pointerID;
+    int actionPointerID;
+    int[] dataList = new int[5];
+    int[][] coordList = new int[dataList.length][2];
+    int pointerCount=0;
     String sned;
     @Override
     public boolean dispatchTouchEvent(MotionEvent event){
-        if(client == null) return true;
-        if(!client.isConnected()) {
-            bindUser();
-            return true;
-        }
-        index = event.getActionIndex();
-        action = event.getActionMasked();
-        pointerID = event.getPointerId(index);
+        //if(bindUserTouch())return true;
+        //if(bindUserScreen())return true;
 //        System.err.print("Pack==");
 //        System.err.print(ii+"-> "+index+" "+action+" "+pointerID+" ("+(int)event.getX()+","+(int)event.getY()+")");
 //        System.err.println("==endpack");
         try{
-            if(client==null||server==null)
+            if(client==null|| touchServerSocket ==null)
                 throw new Exception("Client closed");
 
             if(!client.isConnected())
                 throw new Exception("Client disconnected");
             if(dOut==null) {
                 dOut = new DataOutputStream(client.getOutputStream());
-                dOut.writeByte(3);
             }
-            sned="c"+pointerID+";";
-            switch (action){
-                case MotionEvent.ACTION_DOWN:
-                    //dOut.writeUTF("0-"+pointerID+";"+((int)event.getX())+","+((int)event.getY()));
-                    //dOut.writeInt(0);
-                    sned += "0";
-                break;
-                case MotionEvent.ACTION_CANCEL:
-                    //dOut.writeInt(3);
-                    sned += "3";
-                break;
-                case MotionEvent.ACTION_UP:
-                    //dOut.writeInt(1);
-                    sned += "1";
-                break;
-                case MotionEvent.ACTION_MOVE:
-                    //dOut.writeInt(2);
-                    sned += "2";
-                break;
+
+            actionPointerID = (event.getAction() & MotionEvent.ACTION_POINTER_INDEX_MASK) >> MotionEvent.ACTION_POINTER_INDEX_SHIFT;
+            dataList[actionPointerID] = event.getPointerId(actionPointerID);
+            //System.out.print(actionPointerID+".."+event.getActionMasked()+"-> ");
+            //======================================================
+            sned="c";
+            for(int ii=0;ii < event.getPointerCount();ii++){
+                pointerID=event.getPointerId(ii);
+                coordList[pointerID][0]=(int)event.getX(ii);
+                coordList[pointerID][1]=(int)event.getY(ii);
+                sned+=pointerID+";";
+                if(ii == actionPointerID){
+                    switch (event.getAction() & MotionEvent.ACTION_MASK){
+                        case MotionEvent.ACTION_POINTER_DOWN:
+                        case MotionEvent.ACTION_DOWN:
+                            dataList[ii]=0;break;
+                        case MotionEvent.ACTION_CANCEL:
+                            dataList[ii]=3;break;
+                        case MotionEvent.ACTION_POINTER_UP:
+                        case MotionEvent.ACTION_UP:
+                            dataList[ii]=1;break;
+                        case MotionEvent.ACTION_HOVER_MOVE:
+                        case MotionEvent.ACTION_MOVE:
+                            dataList[ii]=2;break;
+                        default:
+                            dataList[ii]=-1;
+                    }
+                }
+                sned+=dataList[ii]+";"+coordList[ii][0]+";"+coordList[ii][1]+";|";
             }
-            sned+=";"+((int)event.getX())+";"+((int)event.getY())+";d";
+            sned+="d";
+            /*if(1==1){
+                System.out.println(sned);
+                return true;
+            }*/
             dOut.writeBytes(sned);
             System.out.println(sned);
             dOut.flush(); // Send off the data
@@ -145,7 +360,8 @@ public class MainActivity extends AppCompatActivity {
             } catch (IOException ex) {
                 ex.printStackTrace();
             }
-            bindUser();
+            bindUserTouch();
+            bindUserScreen();
             return true;
         } catch (Exception e) {
             System.err.println(e);
