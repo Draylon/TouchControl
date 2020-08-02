@@ -133,11 +133,11 @@ public class MainActivity extends AppCompatActivity {
                     compressedbb=new byte[comprDataLength];
                     scrDIS.readFully(compressedbb,0,comprDataLength);
                     decompressor.setInput(compressedbb);
-                    System.out.println("received Compressed: "+comprDataLength+" total, doing: " +decompressor.getBytesRead()+" "+decompressor.getBytesWritten());
+                    //System.out.println("received Compressed: "+comprDataLength+" total, doing: " +decompressor.getBytesRead()+" "+decompressor.getBytesWritten());
                     while (!decompressor.finished()) {
                         int count = decompressor.inflate(buffer);
                         scrDout.write(buffer, 0, count); }
-                    System.out.println("Drawing on screen");
+                    //System.out.println("Drawing on screen");
                     drawOnScreen(BitmapFactory.decodeByteArray(scrDout.toByteArray(),0, scrDout.size()));
 
                     buffer = new byte[8192];
