@@ -8,6 +8,8 @@ Download the latest release [here](https://github.com/Draylon/TouchControl/relea
 
 ## Usage
 
+Tested on API 20 (KitKat 4.4.x)
+
 This app is the second to [TouchControlServer](https://github.com/Draylon/TouchControlServer), you must download first.
 
 Install the latest release, plug your phone into the usb, and run [TouchControlServer](https://github.com/Draylon/TouchControlServer) (usb debug might be necessary)
