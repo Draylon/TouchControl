@@ -2,71 +2,24 @@ package com.objectdynamics.touchcontrol;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-<<<<<<< Updated upstream
-import android.media.MediaPlayer;
-import android.os.ParcelFileDescriptor;
-import android.view.MotionEvent;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
-import android.view.View;
-import android.widget.ImageView;
-import android.widget.VideoView;
-=======
 import android.graphics.Canvas;
 import android.graphics.SurfaceTexture;
 import android.os.Bundle;
 import android.view.MotionEvent;
 import android.view.TextureView;
 import android.view.View;
->>>>>>> Stashed changes
 import androidx.appcompat.app.AppCompatActivity;
 import android.os.Bundle;
 
 import java.io.*;
-<<<<<<< Updated upstream
-import java.net.*;
-import java.nio.ByteBuffer;
-import java.util.zip.Deflater;
-=======
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.nio.Buffer;
->>>>>>> Stashed changes
 import java.util.zip.Inflater;
 
 public class MainActivity extends AppCompatActivity {
 
-<<<<<<< Updated upstream
-    private static ServerSocket touchServerSocket=null;
-    private static Socket client=null;
-    private static DataOutputStream dOut =null;
-    private static int[] dimensionsList = new int[2];
-
-    MediaPlayer mp;
-    VideoView videoFeed;
-    private SurfaceView mPreview;
-    private SurfaceHolder holder;
-    ServerSocket screenServer;
-    Socket screenClient;
-    ImageView imgv;
-    private static DataInputStream scrDIS=null;
-    private static Inflater decompressor;
-    private static ByteArrayOutputStream scrDout;
-    private static InetAddress scripadd;
-
-    //https://stackoverflow.com/questions/6116880/stream-live-video-from-phone-to-phone-using-socket-fd
-    //https://www.google.com/search?q=java+Socket+stream+pc+screen+to+android+videofeed
-    private void drawOnScreen(final Bitmap bitmap){
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                try{
-                    imgv.setImageBitmap(bitmap);
-                }catch (Exception e){
-                    e.printStackTrace();
-                }
-=======
     private static int[] scrDimensionsList = new int[2];
     private static int screenFPS=0;
 
@@ -370,7 +323,6 @@ https://stackoverflow.com/questions/12519235/modifying-camera-output-using-surfa
  */
 
 
->>>>>>> Stashed changes
     /*Runnable screenServerRunnable = new Runnable() {
         @Override
         public void run() {
@@ -426,27 +378,7 @@ https://stackoverflow.com/questions/12519235/modifying-camera-output-using-surfa
         }
     };*/
 
-<<<<<<< Updated upstream
-    Runnable screenServerRunnable = new Runnable() {
-        @Override
-        public void run() {
-            try{
-                if(screenClient!=null)screenClient.close();screenClient=null;
-                if(scrDIS!=null)scrDIS.close();
-                if(screenServer==null){ screenServer=new ServerSocket(3323);System.out.println("Screen Server initialized at 3323"); }
-                screenClient = screenServer.accept();
-                scrDIS=new DataInputStream(screenClient.getInputStream());
-                decompressor=new Inflater();
-                scrDout=new ByteArrayOutputStream();
-                byte[] buffer = new byte[8192];
-                byte[] compressedbb;
-                imgv=(ImageView)findViewById(R.id.imageView);
-                int comprDataLength=0;
-                //novo metodo:
-                //primeiro byte escreve o tamanho em bytes da string de tamanho
-                //pega os bytes e converte pra int
-                //readfully do resto
-                //https://stackoverflow.com/questions/2732260/in-java-when-i-call-outputstream-close-do-i-always-need-to-call-outputstream
+//=============================================
 
                 while (screenClient.isConnected()&&screenClient.isBound()&&!screenClient.isClosed()){
                     comprDataLength=scrDIS.readInt();
