@@ -1,57 +1,266 @@
 package com.objectdynamics.touchcontrol;
 
-import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.media.MediaPlayer;
-import android.os.ParcelFileDescriptor;
+import android.os.Bundle;
 import android.view.MotionEvent;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
 import android.view.View;
 import android.widget.ImageView;
-import android.widget.VideoView;
 import androidx.appcompat.app.AppCompatActivity;
-import android.os.Bundle;
 
-import java.io.*;
-import java.net.*;
-import java.nio.ByteBuffer;
-import java.util.zip.Deflater;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketException;
 import java.util.zip.Inflater;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity_old extends AppCompatActivity {
 
-    private static ServerSocket touchServerSocket=null;
-    private static Socket client=null;
-    private static DataOutputStream dOut =null;
+    private static ServerSocket touchServerSocket = null;
+    private static Socket client = null;
+    private static DataOutputStream dOut = null;
     private static int[] dimensionsList = new int[2];
 
-    MediaPlayer mp;
-    VideoView videoFeed;
-    private SurfaceView mPreview;
-    private SurfaceHolder holder;
-    ServerSocket screenServer;
-    Socket screenClient;
-    ImageView imgv;
+    private static ServerSocket screenServer=null;
+    private static Socket screenClient=null;
+    private ImageView imgv=null;
     private static DataInputStream scrDIS=null;
-    private static Inflater decompressor;
-    private static ByteArrayOutputStream scrDout;
-    private static InetAddress scripadd;
+    private static Inflater decompressor=null;
+    private static ByteArrayOutputStream scrDout=null;
+    private static int screenFPS=0;
 
     //https://stackoverflow.com/questions/6116880/stream-live-video-from-phone-to-phone-using-socket-fd
     //https://www.google.com/search?q=java+Socket+stream+pc+screen+to+android+videofeed
-    private void drawOnScreen(final Bitmap bitmap){
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                try{
-                    imgv.setImageBitmap(bitmap);
-                }catch (Exception e){
-                    e.printStackTrace();
+
+    Runnable screenServerRunnable = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                if (screenClient != null) screenClient.close();
+                screenClient = null;
+                if (scrDIS != null) scrDIS.close();
+                if (screenServer == null) {
+                    screenServer = new ServerSocket(3323);
+                    System.out.println("Screen Server initialized at 3323");
                 }
+                screenClient = screenServer.accept();
+                scrDIS = new DataInputStream(screenClient.getInputStream());
+                decompressor = new Inflater();
+                scrDout = new ByteArrayOutputStream();
+                byte[] buffer = new byte[8192];
+                byte[] compressedbb=new byte[0];
+                imgv = (ImageView) findViewById(R.id.imageView);
+                int comprDataLength = 0,decompDataLen = 0;
+                //novo metodo:
+                //primeiro byte escreve o tamanho em bytes da string de tamanho
+                //pega os bytes e converte pra int
+                //readfully do resto
+                //https://stackoverflow.com/questions/2732260/in-java-when-i-call-outputstream-close-do-i-always-need-to-call-outputstream
+
+                while (screenClient.isConnected() && screenClient.isBound() && !screenClient.isClosed()) {
+                    //decompDataLen=scrDIS.readInt();
+                    comprDataLength = scrDIS.readInt();
+                    if(comprDataLength > compressedbb.length)
+                        compressedbb = new byte[comprDataLength];// GC LAG
+                    scrDIS.readFully(compressedbb, 0, comprDataLength);
+                    decompressor.setInput(compressedbb,0,comprDataLength);//System.out.println("received Compressed: "+comprDataLength+" total, doing: " +decompressor.getBytesRead()+" "+decompressor.getBytesWritten());
+                    while (!decompressor.finished()) {
+                        int count = decompressor.inflate(buffer);
+                        scrDout.write(buffer, 0, count);
+                    }//System.out.println("Drawing on screen");
+                    imgv.setImageBitmap(BitmapFactory.decodeByteArray(scrDout.toByteArray(), 0, scrDout.size()));
+                    //Major update required
+                    // need test with classes
+                    // https://stackoverflow.com/questions/15989869/set-imageview-from-thread
+                    // https://stuff.mit.edu/afs/sipb/project/android/docs/training/displaying-bitmaps/process-bitmap.html
+                    screenFPS++;
+                    //scrDout.flush();
+                }
+            }catch (Exception e){
+                e.printStackTrace();
+            }finally {
+                fpsThread.interrupt();
             }
-        });
+        }
+    };
+    Thread sendVideo=null;
+    private boolean bindUserScreen() {
+        if (screenClient != null) if (screenClient.isConnected()||!screenClient.isClosed()) return true;
+        sendVideo = new Thread(screenServerRunnable);
+        sendVideo.start();
+        return false;
     }
+
+
+
+    Runnable conTouchServerRunnable = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                if (client != null) client.close();
+                client = null;
+                if (dOut != null) dOut.close();
+                if (touchServerSocket == null) {
+                    dimensionsList[0] = findViewById(R.id.mainwindow).getWidth();
+                    dimensionsList[1] = findViewById(R.id.mainwindow).getHeight();
+                    touchServerSocket = new ServerSocket(3322);
+                    System.out.println("Touch Server initialized at 3322");
+                }
+                client = touchServerSocket.accept();
+                System.out.println("TouchServer connected IP " + client.getInetAddress().getHostAddress());
+            } catch (IOException e) {
+                System.out.println(e.getMessage());
+            }
+        }
+    };
+    Thread connectThread = null;
+    private boolean bindUserTouch() {
+        if (client != null) if (!client.isClosed() && !client.isClosed()) return false;
+        if (connectThread != null) if (connectThread.isAlive()) return true;
+        System.out.println("binding touch");
+        connectThread = new Thread(conTouchServerRunnable);
+        connectThread.start();
+        return true;
+    }
+
+
+
+    Thread fpsThread=null;
+    private void fpsThread(){
+        if(fpsThread==null){
+            fpsThread=new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        while (true) {
+                            System.out.println("FPS: " + screenFPS);
+                            screenFPS=0;
+                            Thread.sleep(1000);
+                        }
+                    }catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+            fpsThread.start();
+        }
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+        /*requestWindowFeature(Window.FEATURE_NO_TITLE); //will hide the title
+        getSupportActionBar().hide(); // hide the title bar
+        this.getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN); //enable full screen
+        //carrega o layout*/
+        getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_IMMERSIVE);
+        fpsThread();
+        //bindUserTouch();
+        bindUserScreen();
+        /*server.close();
+        client.close();
+        dOut.close();*/
+    }
+
+    int pointerID;
+    int actionPointerID;
+    int[] dataList = new int[5];
+    int[][] coordList = new int[dataList.length][2];
+    int pointerCount = 0;
+    String sned;
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        if (bindUserTouch()) return true;
+//        System.err.print("Pack==");
+//        System.err.print(ii+"-> "+index+" "+action+" "+pointerID+" ("+(int)event.getX()+","+(int)event.getY()+")");
+//        System.err.println("==endpack");
+        try {
+            if (client == null || touchServerSocket == null)
+                throw new Exception("Client closed");
+
+            if (!client.isConnected())
+                throw new Exception("Client disconnected");
+            if (dOut == null) {
+                dOut = new DataOutputStream(client.getOutputStream());
+            }
+
+            actionPointerID = (event.getAction() & MotionEvent.ACTION_POINTER_INDEX_MASK) >> MotionEvent.ACTION_POINTER_INDEX_SHIFT;
+            dataList[actionPointerID] = event.getPointerId(actionPointerID);
+            //System.out.print(actionPointerID+".."+event.getActionMasked()+"-> ");
+            //======================================================
+            sned = "c";
+            for (int ii = 0; ii < event.getPointerCount(); ii++) {
+                pointerID = event.getPointerId(ii);
+                coordList[pointerID][0] = (int) event.getX(ii);
+                coordList[pointerID][1] = (int) event.getY(ii);
+                sned += pointerID + ";";
+                if (ii == actionPointerID) {
+                    switch (event.getAction() & MotionEvent.ACTION_MASK) {
+                        case MotionEvent.ACTION_POINTER_DOWN:
+                        case MotionEvent.ACTION_DOWN:
+                            dataList[ii] = 0;
+                            break;
+                        case MotionEvent.ACTION_CANCEL:
+                            dataList[ii] = 3;
+                            break;
+                        case MotionEvent.ACTION_POINTER_UP:
+                        case MotionEvent.ACTION_UP:
+                            dataList[ii] = 1;
+                            break;
+                        case MotionEvent.ACTION_HOVER_MOVE:
+                        case MotionEvent.ACTION_MOVE:
+                            dataList[ii] = 2;
+                            break;
+                        default:
+                            dataList[ii] = -1;
+                    }
+                }
+                sned += dataList[ii] + ";" + coordList[ii][0] + ";" + coordList[ii][1] + ";|";
+            }
+            sned += "d";
+            /*if(1==1){
+                System.out.println(sned);
+                return true;
+            }*/
+            dOut.writeBytes(sned);
+            System.out.println(sned);
+            dOut.flush(); // Send off the data
+        } catch (SocketException e) {
+            try {
+                client.close();
+                dOut.close();
+                client = null;
+                dOut = null;
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
+            bindUserTouch();
+            bindUserScreen();
+            return true;
+        } catch (Exception e) {
+            System.err.println(e);
+            e.printStackTrace();
+        } finally {
+            return true;
+        }
+    }
+}
+//        MotionEvent.ACTION_DOWN
+//        MotionEvent.ACTION_UP
+//        MotionEvent.ACTION_MOVE
+//        MotionEvent.ACTION_CANCEL
+//        MotionEvent.ACTION_OUTSIDE
+
     /*Runnable screenServerRunnable = new Runnable() {
         @Override
         public void run() {
@@ -107,95 +316,7 @@ public class MainActivity extends AppCompatActivity {
         }
     };*/
 
-    Runnable screenServerRunnable = new Runnable() {
-        @Override
-        public void run() {
-            try{
-                if(screenClient!=null)screenClient.close();screenClient=null;
-                if(scrDIS!=null)scrDIS.close();
-                if(screenServer==null){ screenServer=new ServerSocket(3323);System.out.println("Screen Server initialized at 3323"); }
-                screenClient = screenServer.accept();
-                scrDIS=new DataInputStream(screenClient.getInputStream());
-                decompressor=new Inflater();
-                scrDout=new ByteArrayOutputStream();
-                byte[] buffer = new byte[8192];
-                byte[] compressedbb;
-                imgv=(ImageView)findViewById(R.id.imageView);
-                int comprDataLength=0;
-                //novo metodo:
-                //primeiro byte escreve o tamanho em bytes da string de tamanho
-                //pega os bytes e converte pra int
-                //readfully do resto
-                //https://stackoverflow.com/questions/2732260/in-java-when-i-call-outputstream-close-do-i-always-need-to-call-outputstream
-
-                while (screenClient.isConnected()&&screenClient.isBound()&&!screenClient.isClosed()){
-                    comprDataLength=scrDIS.readInt();
-                    compressedbb=new byte[comprDataLength];
-                    scrDIS.readFully(compressedbb,0,comprDataLength);
-                    decompressor.setInput(compressedbb);
-                    //System.out.println("received Compressed: "+comprDataLength+" total, doing: " +decompressor.getBytesRead()+" "+decompressor.getBytesWritten());
-                    while (!decompressor.finished()) {
-                        int count = decompressor.inflate(buffer);
-                        scrDout.write(buffer, 0, count); }
-                    //System.out.println("Drawing on screen");
-                    drawOnScreen(BitmapFactory.decodeByteArray(scrDout.toByteArray(),0, scrDout.size()));
-
-                    buffer = new byte[8192];
-                    scrDout.flush();
-                    scrDout.reset();
-                    decompressor.reset();
-                }
-            }catch (Exception e){
-                e.printStackTrace();
-            }
-        }
-    };
-
-    Runnable conTouchServerRunnable = new Runnable() {
-        @Override
-        public void run() {
-            try{
-                dimensionsList[0]= findViewById(R.id.mainwindow).getWidth();
-                dimensionsList[1]=findViewById(R.id.mainwindow).getHeight();
-                if(client!=null) client.close();
-                client=null;
-                if(dOut!=null) dOut.close();
-                if(touchServerSocket ==null){
-                    touchServerSocket = new ServerSocket(3322);
-                    System.out.println("Touch Server initialized at 3322");
-                }
-                client = touchServerSocket.accept();
-                System.out.println("TouchServer connected IP "+client.getInetAddress().getHostAddress());
-            }catch (IOException e){
-                System.out.println(e.getMessage());
-            }
-        }
-    };
-
-    Thread connectThread=null;
-    private boolean bindUserTouch(){
-        if(client!=null) if(!client.isClosed()&&!client.isClosed()) return false;
-        if(connectThread != null) if(connectThread.isAlive()) return true;
-        System.out.println("binding touch");
-        connectThread = new Thread(conTouchServerRunnable);
-        connectThread.start();
-        return true;
-    }
-
-    Thread sendVideo=null;
-    private boolean bindUserScreen(){
-        if(sendVideo != null) if(sendVideo.isAlive()) return true;
-
-        mPreview = (SurfaceView) findViewById(R.id.surfaceView);
-        holder = mPreview.getHolder();
-        //holder.addCallback(this);
-        holder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
-        mp = new MediaPlayer();
-
-        sendVideo = new Thread(screenServerRunnable);
-        sendVideo.start();
-        return false;
-    }
+    //=============================================
 
     /*Thread screenServerThread=null;
     private boolean bindUserScreen(){
@@ -270,113 +391,6 @@ public class MainActivity extends AppCompatActivity {
         castingScreenThread.start();
     }*/
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState){
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-        /*requestWindowFeature(Window.FEATURE_NO_TITLE); //will hide the title
-        getSupportActionBar().hide(); // hide the title bar
-        this.getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN); //enable full screen
-        //carrega o layout*/
-        getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                        | View.SYSTEM_UI_FLAG_FULLSCREEN
-                        | View.SYSTEM_UI_FLAG_IMMERSIVE);
-        //bindUserTouch();
-        bindUserScreen();
-        /*server.close();
-        client.close();
-        dOut.close();*/
-    }
-    int pointerID;
-    int actionPointerID;
-    int[] dataList = new int[5];
-    int[][] coordList = new int[dataList.length][2];
-    int pointerCount=0;
-    String sned;
-    @Override
-    public boolean dispatchTouchEvent(MotionEvent event){
-        //if(bindUserTouch())return true;
-        //if(bindUserScreen())return true;
-//        System.err.print("Pack==");
-//        System.err.print(ii+"-> "+index+" "+action+" "+pointerID+" ("+(int)event.getX()+","+(int)event.getY()+")");
-//        System.err.println("==endpack");
-        try{
-            if(client==null|| touchServerSocket ==null)
-                throw new Exception("Client closed");
-
-            if(!client.isConnected())
-                throw new Exception("Client disconnected");
-            if(dOut==null) {
-                dOut = new DataOutputStream(client.getOutputStream());
-            }
-
-            actionPointerID = (event.getAction() & MotionEvent.ACTION_POINTER_INDEX_MASK) >> MotionEvent.ACTION_POINTER_INDEX_SHIFT;
-            dataList[actionPointerID] = event.getPointerId(actionPointerID);
-            //System.out.print(actionPointerID+".."+event.getActionMasked()+"-> ");
-            //======================================================
-            sned="c";
-            for(int ii=0;ii < event.getPointerCount();ii++){
-                pointerID=event.getPointerId(ii);
-                coordList[pointerID][0]=(int)event.getX(ii);
-                coordList[pointerID][1]=(int)event.getY(ii);
-                sned+=pointerID+";";
-                if(ii == actionPointerID){
-                    switch (event.getAction() & MotionEvent.ACTION_MASK){
-                        case MotionEvent.ACTION_POINTER_DOWN:
-                        case MotionEvent.ACTION_DOWN:
-                            dataList[ii]=0;break;
-                        case MotionEvent.ACTION_CANCEL:
-                            dataList[ii]=3;break;
-                        case MotionEvent.ACTION_POINTER_UP:
-                        case MotionEvent.ACTION_UP:
-                            dataList[ii]=1;break;
-                        case MotionEvent.ACTION_HOVER_MOVE:
-                        case MotionEvent.ACTION_MOVE:
-                            dataList[ii]=2;break;
-                        default:
-                            dataList[ii]=-1;
-                    }
-                }
-                sned+=dataList[ii]+";"+coordList[ii][0]+";"+coordList[ii][1]+";|";
-            }
-            sned+="d";
-            /*if(1==1){
-                System.out.println(sned);
-                return true;
-            }*/
-            dOut.writeBytes(sned);
-            System.out.println(sned);
-            dOut.flush(); // Send off the data
-        }catch (SocketException e){
-            try {
-                client.close();
-                dOut.close();
-                client=null;
-                dOut=null;
-            } catch (IOException ex) {
-                ex.printStackTrace();
-            }
-            bindUserTouch();
-            bindUserScreen();
-            return true;
-        } catch (Exception e) {
-            System.err.println(e);
-            e.printStackTrace();
-        }
-        finally {
-            return true;
-        }
-//        MotionEvent.ACTION_DOWN
-//        MotionEvent.ACTION_UP
-//        MotionEvent.ACTION_MOVE
-//        MotionEvent.ACTION_CANCEL
-//        MotionEvent.ACTION_OUTSIDE
-    }
-
     /*@Override
     public boolean onTouchEvent(MotionEvent event){
         int index = event.getActionIndex();
@@ -386,4 +400,3 @@ public class MainActivity extends AppCompatActivity {
         sendData(index,action2,pointerID,(int)event.getX(),(int)event.getY());
         return true;
     }*/
-}
